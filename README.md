@@ -1,1 +1,1 @@
-# keyedsemaphore
+# keyed-semaphore
