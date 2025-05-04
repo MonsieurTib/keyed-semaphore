@@ -20,6 +20,12 @@ func NewKeyedSemaphore(maxSize int) *KeyedSemaphore {
 }
 
 func (ks *KeyedSemaphore) Wait(key string, ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	ks.mu.RLock()
 	sem, exists := ks.semMap[key]
 	ks.mu.RUnlock()
@@ -28,6 +34,12 @@ func (ks *KeyedSemaphore) Wait(key string, ctx context.Context) error {
 		ks.mu.Lock()
 		sem, exists = ks.semMap[key]
 		if !exists {
+			select {
+			case <-ctx.Done():
+				ks.mu.Unlock()
+				return ctx.Err()
+			default:
+			}
 			sem = make(chan struct{}, ks.maxSize)
 			ks.semMap[key] = sem
 		}
