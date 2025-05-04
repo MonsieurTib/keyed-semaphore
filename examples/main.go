@@ -15,7 +15,7 @@ func worker(id int, resourceID string, semaphore *ks.KeyedSemaphore, wg *sync.Wa
 	fmt.Printf("Worker %d: Attempting lock for resource '%s'...\n", id, resourceID)
 
 	// Wait blocks until the semaphore for the key can be acquired or context is done.
-	err := semaphore.Wait(resourceID, ctx)
+	err := semaphore.Wait(ctx, resourceID)
 	if err != nil {
 		fmt.Printf("Worker %d: Failed lock for resource '%s': %v\n", id, resourceID, err)
 		return
@@ -24,7 +24,7 @@ func worker(id int, resourceID string, semaphore *ks.KeyedSemaphore, wg *sync.Wa
 	fmt.Printf("Worker %d: Acquired lock for resource '%s'. Working...\n", id, resourceID)
 
 	// Simulate work holding the semaphore
-	time.Sleep(time.Second*3)
+	time.Sleep(time.Second * 3)
 
 	fmt.Printf("Worker %d: Work done. Releasing lock for resource '%s'.\n", id, resourceID)
 

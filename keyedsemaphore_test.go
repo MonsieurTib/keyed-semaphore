@@ -40,7 +40,7 @@ func TestKeyedSemaphore_Wait(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ks := NewKeyedSemaphore(tt.maxSize)
-			gotErr := ks.Wait(tt.key, tt.ctx)
+			gotErr := ks.Wait(tt.ctx, tt.key)
 			if gotErr != nil {
 				if !tt.wantErr {
 					t.Errorf("Wait() failed: %v", gotErr)
@@ -61,13 +61,13 @@ func TestKeyedSemaphore_WaitReleaseInteraction(t *testing.T) {
 		ctx := context.Background()
 
 		// First Wait should succeed
-		err := ks.Wait(key, ctx)
+		err := ks.Wait(ctx, key)
 		require.NoError(t, err, "First Wait failed unexpectedly")
 
 		// Start second Wait in a goroutine, it should block
 		waitChan := make(chan error, 1)
 		go func() {
-			waitChan <- ks.Wait(key, ctx)
+			waitChan <- ks.Wait(ctx, key)
 		}()
 
 		// Give the goroutine a chance to start and potentially block

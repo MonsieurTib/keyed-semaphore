@@ -19,7 +19,7 @@ func NewKeyedSemaphore(maxSize int) *KeyedSemaphore {
 	}
 }
 
-func (ks *KeyedSemaphore) Wait(key string, ctx context.Context) error {
+func (ks *KeyedSemaphore) Wait(ctx context.Context, key string) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
