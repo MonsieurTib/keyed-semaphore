@@ -1,3 +1,7 @@
+![Build](https://github.com/MonsieurTib/keyed-semaphore/actions/workflows/go.yml/badge.svg)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=MonsieurTib_keyed-semaphore&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=MonsieurTib_keyed-semaphore)
+
+
 # Keyed Semaphore for Go
 
 `keyed-semaphore` provides a semaphore implementation in Go where the locking is based on arbitrary keys (strings). This allows you to limit concurrency for operations associated with specific identifiers, rather than just globally.
