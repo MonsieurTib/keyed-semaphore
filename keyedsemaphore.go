@@ -6,20 +6,20 @@ import (
 	"sync"
 )
 
-type KeyedSemaphore struct {
+type KeyedSemaphore[K comparable] struct {
 	maxSize int
-	semMap  map[string]chan struct{}
+	semMap  map[K]chan struct{}
 	mu      sync.RWMutex
 }
 
-func NewKeyedSemaphore(maxSize int) *KeyedSemaphore {
-	return &KeyedSemaphore{
+func NewKeyedSemaphore[K comparable](maxSize int) *KeyedSemaphore[K] {
+	return &KeyedSemaphore[K]{
 		maxSize: maxSize,
-		semMap:  make(map[string]chan struct{}),
+		semMap:  make(map[K]chan struct{}),
 	}
 }
 
-func (ks *KeyedSemaphore) Wait(ctx context.Context, key string) error {
+func (ks *KeyedSemaphore[K]) Wait(ctx context.Context, key K) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -54,7 +54,7 @@ func (ks *KeyedSemaphore) Wait(ctx context.Context, key string) error {
 	}
 }
 
-func (ks *KeyedSemaphore) TryWait(ctx context.Context, key string) bool {
+func (ks *KeyedSemaphore[K]) TryWait(ctx context.Context, key K) bool {
 	select {
 	case <-ctx.Done():
 		return false
@@ -83,12 +83,12 @@ func (ks *KeyedSemaphore) TryWait(ctx context.Context, key string) bool {
 	}
 }
 
-func (ks *KeyedSemaphore) Release(key string) error {
+func (ks *KeyedSemaphore[K]) Release(key K) error {
 	ks.mu.Lock()
 	sem, exists := ks.semMap[key]
 	if !exists {
 		ks.mu.Unlock()
-		return fmt.Errorf("attempting to release a semaphore that doesn't exist for key: %s", key)
+		return fmt.Errorf("attempting to release a semaphore that doesn't exist for key: %v", key)
 	}
 
 	select {
@@ -100,6 +100,6 @@ func (ks *KeyedSemaphore) Release(key string) error {
 		return nil
 	default:
 		ks.mu.Unlock()
-		return fmt.Errorf("release called without a matching Wait for key: %s", key)
+		return fmt.Errorf("release called without a matching Wait for key: %v", key)
 	}
 }

@@ -9,7 +9,7 @@ import (
 	ks "github.com/MonsieurTib/keyed-semaphore"
 )
 
-func worker(id int, resourceID string, semaphore *ks.KeyedSemaphore, wg *sync.WaitGroup) {
+func worker(id int, resourceID string, semaphore *ks.KeyedSemaphore[string], wg *sync.WaitGroup) {
 	defer wg.Done()
 	ctx := context.Background()
 	fmt.Printf("Worker %d: Attempting lock for resource '%s'...\n", id, resourceID)
@@ -38,7 +38,7 @@ func worker(id int, resourceID string, semaphore *ks.KeyedSemaphore, wg *sync.Wa
 func main() {
 	// Create a new KeyedSemaphore, allowing 2 concurrent operations per key.
 	maxConcurrentPerKey := 2
-	semaphore := ks.NewKeyedSemaphore(maxConcurrentPerKey)
+	semaphore := ks.NewKeyedSemaphore[string](maxConcurrentPerKey)
 
 	var wg sync.WaitGroup
 	numWorkers := 5

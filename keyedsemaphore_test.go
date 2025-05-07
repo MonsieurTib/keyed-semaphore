@@ -10,28 +10,26 @@ import (
 
 func TestKeyedSemaphore_Wait(t *testing.T) {
 	tests := []struct {
-		name string // description of this test case
-		// Named input parameters for receiver constructor.
+		name    string
 		maxSize int
-		// Named input parameters for target function.
 		key     string
 		ctx     context.Context
 		wantErr bool
 	}{
-		{ // Test case 1: Normal case
+		{
 			name:    "Normal case",
 			maxSize: 1,
 			key:     "key1",
 			ctx:     context.Background(),
 			wantErr: false,
 		},
-		{ // Test case 2: Context cancelled
+		{
 			name:    "Context cancelled",
 			maxSize: 1,
 			key:     "key2",
 			ctx: func() context.Context {
 				ctx, cancel := context.WithCancel(context.Background())
-				cancel() // Cancel the context immediately
+				cancel()
 				return ctx
 			}(),
 			wantErr: true,
@@ -39,7 +37,7 @@ func TestKeyedSemaphore_Wait(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ks := NewKeyedSemaphore(tt.maxSize)
+			ks := NewKeyedSemaphore[string](tt.maxSize)
 			gotErr := ks.Wait(tt.ctx, tt.key)
 			if gotErr != nil {
 				if !tt.wantErr {
@@ -56,7 +54,7 @@ func TestKeyedSemaphore_Wait(t *testing.T) {
 
 func TestKeyedSemaphore_WaitReleaseInteraction(t *testing.T) {
 	t.Run("Wait blocks when full and unblocks on Release", func(t *testing.T) {
-		ks := NewKeyedSemaphore(1) // Max size 1
+		ks := NewKeyedSemaphore[string](1)
 		key := "blockKey"
 		ctx := context.Background()
 
