@@ -1,5 +1,6 @@
 ![Build](https://github.com/MonsieurTib/keyed-semaphore/actions/workflows/go.yml/badge.svg)
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=MonsieurTib_keyed-semaphore&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=MonsieurTib_keyed-semaphore)
+[![Go Report Card](https://goreportcard.com/badge/github.com/MonsieurTib/keyed-semaphore)](https://goreportcard.com/report/github.com/MonsieurTib/keyed-semaphore)
 
 
 # Keyed Semaphore for Go
