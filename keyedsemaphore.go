@@ -1,16 +1,19 @@
 package keyedsemaphore
 
 import (
-	"bytes"
 	"context"
-	"encoding/gob"
 	"fmt"
-	"hash/fnv"
-	"log"
 	"sync"
+
+	"github.com/cespare/xxhash"
 )
 
-type ShardedKeyedSemaphore[K comparable] []*KeyedSemaphore[K]
+type Hasher[K comparable] func(K) uint64
+
+type ShardedKeyedSemaphore[K comparable] struct {
+	shards []*KeyedSemaphore[K]
+	hasher Hasher[K]
+}
 
 type KeyedSemaphore[K comparable] struct {
 	maxSize int
@@ -18,32 +21,27 @@ type KeyedSemaphore[K comparable] struct {
 	mu      sync.RWMutex
 }
 
-func NewShardedKeyedSemaphore[K comparable](shardCount, maxSize int) ShardedKeyedSemaphore[K] {
-	sem := make(ShardedKeyedSemaphore[K], shardCount)
-	for i := range shardCount {
-		sem[i] = &KeyedSemaphore[K]{
-			maxSize: maxSize,
-			semMap:  make(map[K]chan struct{}),
-		}
+func NewShardedKeyedSemaphore[K comparable](
+	shardCount, maxSize int,
+	hasher Hasher[K],
+) *ShardedKeyedSemaphore[K] {
+	shards := make([]*KeyedSemaphore[K], shardCount)
+	for i := range shards {
+		shards[i] = NewKeyedSemaphore[K](maxSize)
 	}
-	return sem
+	return &ShardedKeyedSemaphore[K]{
+		shards: shards,
+		hasher: hasher,
+	}
 }
 
-func (sks ShardedKeyedSemaphore[K]) GetShard(key K) *KeyedSemaphore[K] {
-	shardIndex := int(hash(key)) % len(sks)
-	return sks[shardIndex]
+func (sks *ShardedKeyedSemaphore[K]) GetShard(key K) *KeyedSemaphore[K] {
+	hash := sks.hasher(key)
+	return sks.shards[hash%uint64(len(sks.shards))]
 }
 
-func hash[K comparable](key K) uint32 {
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-	err := enc.Encode(key)
-	if err != nil {
-		log.Fatalf("failed to encode key: %v", err)
-	}
-	h := fnv.New32a()
-	h.Write(buf.Bytes())
-	return h.Sum32()
+func HashString(key string) uint64 {
+	return xxhash.Sum64String(key)
 }
 
 func NewKeyedSemaphore[K comparable](maxSize int) *KeyedSemaphore[K] {
