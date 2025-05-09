@@ -2,10 +2,9 @@ package keyedsemaphore
 
 import (
 	"context"
+	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/require"
 )
 
 func TestKeyedSemaphore_Wait(t *testing.T) {
