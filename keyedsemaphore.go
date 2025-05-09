@@ -3,9 +3,9 @@ package keyedsemaphore
 import (
 	"context"
 	"fmt"
-	"sync"
-
 	"github.com/cespare/xxhash"
+	"sync"
+	"sync/atomic"
 )
 
 type Hasher[K comparable] func(K) uint64
@@ -15,9 +15,14 @@ type ShardedKeyedSemaphore[K comparable] struct {
 	hasher Hasher[K]
 }
 
+type semaphore[K comparable] struct {
+	ch       chan struct{}
+	refCount int32 // Number of active users (Wait successful, Release not yet called)
+}
+
 type KeyedSemaphore[K comparable] struct {
 	maxSize int
-	semMap  map[K]chan struct{}
+	semMap  map[K]*semaphore[K]
 	mu      sync.RWMutex
 }
 
@@ -47,7 +52,7 @@ func HashString(key string) uint64 {
 func NewKeyedSemaphore[K comparable](maxSize int) *KeyedSemaphore[K] {
 	return &KeyedSemaphore[K]{
 		maxSize: maxSize,
-		semMap:  make(map[K]chan struct{}),
+		semMap:  make(map[K]*semaphore[K]),
 	}
 }
 
@@ -58,30 +63,36 @@ func (ks *KeyedSemaphore[K]) Wait(ctx context.Context, key K) error {
 	default:
 	}
 
-	ks.mu.RLock()
-	sem, exists := ks.semMap[key]
-	ks.mu.RUnlock()
+	var sem *semaphore[K]
 
-	if !exists {
+	ks.mu.Lock()
+	s, exists := ks.semMap[key]
+	if exists {
+		sem = s
+		atomic.AddInt32(&sem.refCount, 1)
+	} else {
+		select {
+		case <-ctx.Done():
+			ks.mu.Unlock()
+			return ctx.Err()
+		default:
+		}
+		sem = &semaphore[K]{ch: make(chan struct{}, ks.maxSize), refCount: 1}
+		ks.semMap[key] = sem
+	}
+	ks.mu.Unlock()
+	select {
+	case sem.ch <- struct{}{}:
+		return nil // Acquired successfully
+	case <-ctx.Done():
 		ks.mu.Lock()
-		sem, exists = ks.semMap[key]
-		if !exists {
-			select {
-			case <-ctx.Done():
-				ks.mu.Unlock()
-				return ctx.Err()
-			default:
+		newRefCount := atomic.AddInt32(&sem.refCount, -1)
+		if newRefCount == 0 && len(sem.ch) == 0 {
+			if currentHolderInMap, ok := ks.semMap[key]; ok && currentHolderInMap == sem {
+				delete(ks.semMap, key)
 			}
-			sem = make(chan struct{}, ks.maxSize)
-			ks.semMap[key] = sem
 		}
 		ks.mu.Unlock()
-	}
-
-	select {
-	case sem <- struct{}{}:
-		return nil
-	case <-ctx.Done():
 		return ctx.Err()
 	}
 }
@@ -93,45 +104,90 @@ func (ks *KeyedSemaphore[K]) TryWait(ctx context.Context, key K) bool {
 	default:
 	}
 
-	ks.mu.RLock()
-	sem, exists := ks.semMap[key]
-	ks.mu.RUnlock()
+	var sem *semaphore[K]
 
-	if !exists {
-		ks.mu.Lock()
-		sem, exists = ks.semMap[key]
-		if !exists {
-			sem = make(chan struct{}, ks.maxSize)
-			ks.semMap[key] = sem
+	ks.mu.Lock()
+	s, exists := ks.semMap[key]
+	if exists {
+		sem = s
+		atomic.AddInt32(&sem.refCount, 1)
+	} else {
+		select {
+		case <-ctx.Done():
+			ks.mu.Unlock()
+			return false
+		default:
 		}
-		ks.mu.Unlock()
+		sem = &semaphore[K]{ch: make(chan struct{}, ks.maxSize), refCount: 1}
+		ks.semMap[key] = sem
 	}
+	ks.mu.Unlock()
 
 	select {
-	case sem <- struct{}{}:
-		return true
-	default:
+	case sem.ch <- struct{}{}:
+		return true // Acquired successfully
+	case <-ctx.Done():
+		ks.mu.Lock()
+		newRefCount := atomic.AddInt32(&sem.refCount, -1)
+		if newRefCount == 0 && len(sem.ch) == 0 {
+			if currentHolderInMap, ok := ks.semMap[key]; ok && currentHolderInMap == sem {
+				delete(ks.semMap, key)
+			}
+		}
+		ks.mu.Unlock()
+		return false
+	default: // Channel is full, TryWait fails
+		ks.mu.Lock()
+		newRefCount := atomic.AddInt32(&sem.refCount, -1)
+		if newRefCount == 0 && len(sem.ch) == 0 { // Channel empty
+			if currentHolderInMap, ok := ks.semMap[key]; ok && currentHolderInMap == sem {
+				delete(ks.semMap, key)
+			}
+		}
+		ks.mu.Unlock()
 		return false
 	}
 }
 
 func (ks *KeyedSemaphore[K]) Release(key K) error {
-	ks.mu.Lock()
-	sem, exists := ks.semMap[key]
+	ks.mu.RLock()
+	s, exists := ks.semMap[key]
+	ks.mu.RUnlock()
+
 	if !exists {
-		ks.mu.Unlock()
-		return fmt.Errorf("attempting to release a semaphore that doesn't exist for key: %v", key)
+		return fmt.Errorf(
+			"attempting to release a semaphore that doesn't exist for key: %v (not found in map or never waited on)",
+			key,
+		)
 	}
 
 	select {
-	case <-sem:
-		if len(sem) == 0 {
-			delete(ks.semMap, key)
+	case <-s.ch:
+		// Permit successfully released from channel
+		ks.mu.Lock()
+		newRefCount := atomic.AddInt32(&s.refCount, -1)
+
+		if newRefCount < 0 {
+			atomic.AddInt32(&s.refCount, 1)
+			ks.mu.Unlock()
+			return fmt.Errorf(
+				"semaphore for key %v released more times than acquired (refCount became negative)",
+				key,
+			)
+		}
+
+		if newRefCount == 0 && len(s.ch) == 0 {
+			if currentHolderInMap, ok := ks.semMap[key]; ok && currentHolderInMap == s {
+				delete(ks.semMap, key)
+			}
 		}
 		ks.mu.Unlock()
 		return nil
 	default:
-		ks.mu.Unlock()
-		return fmt.Errorf("release called without a matching Wait for key: %v", key)
+		// Channel was empty, implying a Release without a corresponding successful Wait or a double Release.
+		return fmt.Errorf(
+			"release called on an already empty semaphore channel for key: %v (potential double release or release without wait)",
+			key,
+		)
 	}
 }

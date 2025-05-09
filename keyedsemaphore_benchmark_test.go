@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func BenchmarkKeyedSemaphore_SingleShard(b *testing.B) {
@@ -39,22 +40,20 @@ func BenchmarkKeyedSemaphore_Sharded(b *testing.B) {
 }
 
 const (
-	numGoroutines = 1000
-	// Number of unique keys (simulating high contention)
-	numKeys = 10
+	numKeys = 10 // Number of unique keys (simulating high contention)
 	maxSize = 10
 )
 
 func BenchmarkKeyedSemaphore_SingleShard_High_Contention(b *testing.B) {
 	sem := NewKeyedSemaphore[string](maxSize)
 	ctx := context.Background()
-
 	b.ResetTimer()
-
 	b.RunParallel(func(pb *testing.PB) {
+		// Create a new random source for each goroutine
+		localRand := rand.New(rand.NewSource(time.Now().UnixNano()))
 		for pb.Next() {
 			// Simulate a high-contention scenario with random keys
-			key := fmt.Sprintf("key-%d", rand.Intn(numKeys))
+			key := fmt.Sprintf("key-%d", localRand.Intn(numKeys)) // Use the local random generator
 			err := sem.Wait(ctx, key)
 			if err != nil {
 				b.Fatalf("unexpected error: %v", err)
@@ -74,13 +73,11 @@ func BenchmarkKeyedSemaphore_SingleShard_High_Contention(b *testing.B) {
 func BenchmarkKeyedSemaphore_Sharded_High_Contention(b *testing.B) {
 	shardedSem := NewShardedKeyedSemaphore[string](16, maxSize, HashString)
 	ctx := context.Background()
-
 	b.ResetTimer() // Start the timer after setup
-
 	b.RunParallel(func(pb *testing.PB) {
+		localRand := rand.New(rand.NewSource(time.Now().UnixNano()))
 		for pb.Next() {
-			key := fmt.Sprintf("key-%d", rand.Intn(numKeys))
-
+			key := fmt.Sprintf("key-%d", localRand.Intn(numKeys)) // Use the local random generator
 			shard := shardedSem.GetShard(key)
 			err := shard.Wait(ctx, key)
 			if err != nil {

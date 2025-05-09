@@ -3,61 +3,73 @@ package main
 import (
 	"context"
 	"fmt"
+	ks "github.com/MonsieurTib/keyed-semaphore"
 	"sync"
 	"time"
-
-	ks "github.com/MonsieurTib/keyed-semaphore"
 )
 
-func worker(id int, resourceID string, semaphore *ks.KeyedSemaphore[string], wg *sync.WaitGroup) {
+func worker(ctx context.Context, id int, resourceID string, semaphore *ks.KeyedSemaphore[string], wg *sync.WaitGroup) {
 	defer wg.Done()
-	ctx := context.Background()
 	fmt.Printf("Worker %d: Attempting lock for resource '%s'...\n", id, resourceID)
-
-	// Wait blocks until the semaphore for the key can be acquired or context is done.
-	err := semaphore.Wait(ctx, resourceID)
-	if err != nil {
-		fmt.Printf("Worker %d: Failed lock for resource '%s': %v\n", id, resourceID, err)
-		return
+	var subWg sync.WaitGroup
+	for range 50 {
+		subWg.Add(1)
+		go func() {
+			defer subWg.Done()
+			err := semaphore.Wait(ctx, resourceID)
+			if err != nil {
+				panic(
+					fmt.Errorf(
+						"worker %d: failed to acquire lock for resource %q: %w",
+						id,
+						resourceID,
+						err,
+					),
+				)
+			}
+			// fmt.Printf("Worker %d: Acquired lock for resource '%s'. Working...\n", id, resourceID)
+			// Simulate work holding the semaphore
+			time.Sleep(time.Millisecond * 1)
+			// fmt.Printf("Worker %d: Work done. Releasing lock for resource '%s'.\n", id, resourceID)
+			// Release the semaphore for the key
+			err = semaphore.Release(resourceID)
+			if err != nil {
+				panic(
+					fmt.Errorf(
+						"worker %d: failed to release lock for resource %q: %w",
+						id,
+						resourceID,
+						err,
+					),
+				)
+			}
+		}()
 	}
-
-	fmt.Printf("Worker %d: Acquired lock for resource '%s'. Working...\n", id, resourceID)
-
-	// Simulate work holding the semaphore
-	time.Sleep(time.Second * 3)
-
-	fmt.Printf("Worker %d: Work done. Releasing lock for resource '%s'.\n", id, resourceID)
-
-	// Release the semaphore for the key
-	err = semaphore.Release(resourceID)
-	if err != nil {
-		fmt.Printf("Worker %d: Failed to release lock for resource '%s': %v\n", id, resourceID, err)
-	}
+	subWg.Wait()
 }
 
 func main() {
-	// Create a new KeyedSemaphore, allowing 2 concurrent operations per key.
-	maxConcurrentPerKey := 2
+	maxConcurrentPerKey := 10
 	semaphore := ks.NewKeyedSemaphore[string](maxConcurrentPerKey)
 
+	ctx := context.Background()
 	var wg sync.WaitGroup
-	numWorkers := 5
+	numWorkers := 1000
 	resourceKey := "document-123"
 
 	fmt.Printf("Starting %d workers for resource '%s' (max %d concurrent)...\n",
 		numWorkers, resourceKey, maxConcurrentPerKey)
 
-	// Start multiple workers trying to access the same resource key
 	for i := 1; i <= numWorkers; i++ {
 		wg.Add(1)
-		go worker(i, resourceKey, semaphore, &wg)
+		go worker(ctx, i, resourceKey, semaphore, &wg)
 	}
 
-	// Start a worker for a different resource key - it won't be blocked by the first set
 	wg.Add(1)
-	go worker(numWorkers+1, "other-resource-456", semaphore, &wg)
+	go worker(ctx, numWorkers+1, "other-resource-456", semaphore, &wg)
 
 	fmt.Println("Waiting for workers...")
 	wg.Wait()
 	fmt.Println("All workers finished.")
+	fmt.Printf("Final semaphore state: %v\n", semaphore)
 }
