@@ -35,59 +35,59 @@ The following example demonstrates using `KeyedSemaphore` with string keys. Note
 package main
 
 import (
-	"context"
-	"fmt"
-	ks "github.com/MonsieurTib/keyed-semaphore"
-	"sync"
-	"time"
+    "context"
+    "fmt"
+    ks "github.com/MonsieurTib/keyed-semaphore"
+    "sync"
+    "time"
 )
 
 func worker(id int, resourceID string, semaphore *ks.KeyedSemaphore[string], wg *sync.WaitGroup) {
-	defer wg.Done()
-	ctx := context.Background()
-	fmt.Printf("Worker %d: Attempting lock for resource '%s'...\n", id, resourceID)
+    defer wg.Done()
+    ctx := context.Background()
+    fmt.Printf("Worker %d: Attempting lock for resource '%s'...\n", id, resourceID)
 
-	err := semaphore.Wait(ctx, resourceID) 
-	if err != nil {
-		fmt.Printf("Worker %d: Failed lock for resource '%s': %v\n", id, resourceID, err)
-		return
-	}
+    err := semaphore.Wait(ctx, resourceID) 
+    if err != nil {
+       fmt.Printf("Worker %d: Failed lock for resource '%s': %v\n", id, resourceID, err)
+       return
+    }
 
-	fmt.Printf("Worker %d: Acquired lock for resource '%s'. Working...\n", id, resourceID)
-	time.Sleep(time.Second * 1) // Simulate work
-	fmt.Printf("Worker %d: Work done. Releasing lock for resource '%s'.\n", id, resourceID)
+    fmt.Printf("Worker %d: Acquired lock for resource '%s'. Working...\n", id, resourceID)
+    time.Sleep(time.Second * 1) // Simulate work
+    fmt.Printf("Worker %d: Work done. Releasing lock for resource '%s'.\n", id, resourceID)
 
-	err = semaphore.Release(resourceID)
-	if err != nil {
-		fmt.Printf("Worker %d: Failed to release lock for resource '%s': %v\n", id, resourceID, err)
-	}
+    err = semaphore.Release(resourceID)
+    if err != nil {
+       fmt.Printf("Worker %d: Failed to release lock for resource '%s': %v\n", id, resourceID, err)
+    }
 }
 
 func main() {
-	// Create a new KeyedSemaphore for string keys, allowing 2 concurrent operations per key.
-	maxConcurrentPerKey := 2
-	semaphore := ks.NewKeyedSemaphore[string](maxConcurrentPerKey)
+    // Create a new KeyedSemaphore for string keys, allowing 2 concurrent operations per key.
+    maxConcurrentPerKey := 2
+    semaphore := ks.NewKeyedSemaphore[string](maxConcurrentPerKey)
 
-	var wg sync.WaitGroup
-	numWorkers := 5
-	resourceKey1 := "document-123"
+    var wg sync.WaitGroup
+    numWorkers := 5
+    resourceKey1 := "document-123"
 
-	fmt.Printf("Starting %d workers for resource '%s' (max %d concurrent)...\n",
-		numWorkers, resourceKey1, maxConcurrentPerKey)
+    fmt.Printf("Starting %d workers for resource '%s' (max %d concurrent)...\n",
+       numWorkers, resourceKey1, maxConcurrentPerKey)
 
-	for i := 1; i <= numWorkers; i++ {
-		wg.Add(1)
-		go worker(i, resourceKey1, semaphore, &wg)
-	}
+    for i := 1; i <= numWorkers; i++ {
+    wg.Add(1)
+       go worker(i, resourceKey1, semaphore, &wg)
+    }
 
-	// Example with a different key type (if you were using int keys)
-	// type UserID int
-	// userIDKey := UserID(42)
-	// semaphoreInt := ks.NewKeyedSemaphore[UserID](maxConcurrentPerKey)
-	// ... then use semaphoreInt with userIDKey ...
+    // Example with a different key type (if you were using int keys)
+    // type UserID int
+    // userIDKey := UserID(42)
+    // semaphoreInt := ks.NewKeyedSemaphore[UserID](maxConcurrentPerKey)
+    // ... then use semaphoreInt with userIDKey ...
 
-	wg.Wait()
-	fmt.Println("All workers finished for resourceKey1.")
+    wg.Wait()
+    fmt.Println("All workers finished for resourceKey1.")
 }
 
 ```
@@ -100,59 +100,59 @@ For scenarios with a very large number of unique keys or extremely high contenti
 package main
 
 import (
-	"context"
-	"fmt"
-	ks "github.com/MonsieurTib/keyed-semaphore" 
-	"strconv"
-	"sync"
-	"time"
+    "context"
+    "fmt"
+    ks "github.com/MonsieurTib/keyed-semaphore" 
+    "strconv"
+    "sync"
+    "time"
 )
 
 func shardedWorker(id int, resourceID string, shardedSem *ks.ShardedKeyedSemaphore[string], wg *sync.WaitGroup) {
-	defer wg.Done()
-	ctx := context.Background()
-	fmt.Printf("ShardedWorker %d: Attempting lock for resource '%s'...\n", id, resourceID)
-	shard := shardedSem.GetShard(resourceID)
-	err := shard.Wait(ctx, resourceID)
-	if err != nil {
-		fmt.Printf("ShardedWorker %d: Failed lock for resource '%s': %v\n", id, resourceID, err)
-		return
-	}
+    defer wg.Done()
+    ctx := context.Background()
+    fmt.Printf("ShardedWorker %d: Attempting lock for resource '%s'...\n", id, resourceID)
+    shard := shardedSem.GetShard(resourceID)
+    err := shard.Wait(ctx, resourceID)
+    if err != nil {
+       fmt.Printf("ShardedWorker %d: Failed lock for resource '%s': %v\n", id, resourceID, err)
+       return
+    }
 
-	fmt.Printf("ShardedWorker %d: Acquired lock for resource '%s'. Working...\n", id, resourceID)
-	time.Sleep(time.Millisecond * 500) // Simulate work
-	fmt.Printf("ShardedWorker %d: Work done. Releasing lock for resource '%s'.\n", id, resourceID)
+    fmt.Printf("ShardedWorker %d: Acquired lock for resource '%s'. Working...\n", id, resourceID)
+    time.Sleep(time.Millisecond * 500) // Simulate work
+    fmt.Printf("ShardedWorker %d: Work done. Releasing lock for resource '%s'.\n", id, resourceID)
 
-	err = shard.Release(resourceID) 
-	if err != nil {
-		fmt.Printf("ShardedWorker %d: Failed to release lock for resource '%s': %v\n", id, resourceID, err)
-	}
+    err = shard.Release(resourceID) 
+    if err != nil {
+       fmt.Printf("ShardedWorker %d: Failed to release lock for resource '%s': %v\n", id, resourceID, err)
+    }
 }
 
 func main() {
-	shardCount := 16 // Number of internal shards
-	maxConcurrentPerKey := 2
+    shardCount := 16 // Number of internal shards
+    maxConcurrentPerKey := 2
 
-	// For string keys, you can use the provided HashString function or your own.
-	shardedSemaphore := ks.NewShardedKeyedSemaphore[string](shardCount, maxConcurrentPerKey, ks.HashString)
+    // For string keys, you can use the provided HashString function or your own.
+    shardedSemaphore := ks.NewShardedKeyedSemaphore[string](shardCount, maxConcurrentPerKey, ks.HashString)
 
-	var wg sync.WaitGroup
-	numWorkers := 20 
+    var wg sync.WaitGroup
+    numWorkers := 20 
 
-	fmt.Printf("Starting %d sharded workers (max %d concurrent per key, across %d shards)...\n",
-		numWorkers, maxConcurrentPerKey, shardCount)
+    fmt.Printf("Starting %d sharded workers (max %d concurrent per key, across %d shards)...\n",
+       numWorkers, maxConcurrentPerKey, shardCount)
 
-	for i := 1; i <= numWorkers; i++ {
-		wg.Add(1)
-		// Simulate different keys that might fall into different shards
-		resourceKey := "item-" + strconv.Itoa(i%5)
+    for i := 1; i <= numWorkers; i++ {
+       wg.Add(1)
+       // Simulate different keys that might fall into different shards
+       resourceKey := "item-" + strconv.Itoa(i%5)
 
-		// Pass the main shardedSemaphore instance to the worker
-		go shardedWorker(i, resourceKey, shardedSemaphore, &wg)
-	}
+       // Pass the main shardedSemaphore instance to the worker
+       go shardedWorker(i, resourceKey, shardedSemaphore, &wg)
+    }
 
-	wg.Wait()
-	fmt.Println("All sharded workers finished.")
+    wg.Wait()
+    fmt.Println("All sharded workers finished.")
 }
 ```
 
