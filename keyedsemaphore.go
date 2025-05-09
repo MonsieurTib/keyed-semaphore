@@ -3,9 +3,10 @@ package keyedsemaphore
 import (
 	"context"
 	"fmt"
-	"github.com/cespare/xxhash"
 	"sync"
 	"sync/atomic"
+
+	"github.com/cespare/xxhash"
 )
 
 type Hasher[K comparable] func(K) uint64
@@ -56,6 +57,29 @@ func NewKeyedSemaphore[K comparable](maxSize int) *KeyedSemaphore[K] {
 	}
 }
 
+func (ks *KeyedSemaphore[K]) getOrInitSemaphore(ctx context.Context, key K) (*semaphore[K], error) {
+	ks.mu.Lock()
+	h, exists := ks.semMap[key]
+	if exists {
+		atomic.AddInt32(&h.refCount, 1)
+		ks.mu.Unlock()
+		return h, nil
+	}
+
+	select {
+	case <-ctx.Done():
+		ks.mu.Unlock()
+		return nil, ctx.Err()
+	default:
+	}
+
+	newHolder := &semaphore[K]{ch: make(chan struct{}, ks.maxSize), refCount: 1}
+	ks.semMap[key] = newHolder
+	ks.mu.Unlock()
+
+	return newHolder, nil
+}
+
 func (ks *KeyedSemaphore[K]) Wait(ctx context.Context, key K) error {
 	select {
 	case <-ctx.Done():
@@ -63,32 +87,19 @@ func (ks *KeyedSemaphore[K]) Wait(ctx context.Context, key K) error {
 	default:
 	}
 
-	var sem *semaphore[K]
-
-	ks.mu.Lock()
-	s, exists := ks.semMap[key]
-	if exists {
-		sem = s
-		atomic.AddInt32(&sem.refCount, 1)
-	} else {
-		select {
-		case <-ctx.Done():
-			ks.mu.Unlock()
-			return ctx.Err()
-		default:
-		}
-		sem = &semaphore[K]{ch: make(chan struct{}, ks.maxSize), refCount: 1}
-		ks.semMap[key] = sem
+	holder, err := ks.getOrInitSemaphore(ctx, key)
+	if err != nil {
+		return err // Context was cancelled during holder initialization
 	}
-	ks.mu.Unlock()
+
 	select {
-	case sem.ch <- struct{}{}:
+	case holder.ch <- struct{}{}:
 		return nil // Acquired successfully
 	case <-ctx.Done():
 		ks.mu.Lock()
-		newRefCount := atomic.AddInt32(&sem.refCount, -1)
-		if newRefCount == 0 && len(sem.ch) == 0 {
-			if currentHolderInMap, ok := ks.semMap[key]; ok && currentHolderInMap == sem {
+		newRefCount := atomic.AddInt32(&holder.refCount, -1)
+		if newRefCount == 0 && len(holder.ch) == 0 {
+			if currentHolderInMap, ok := ks.semMap[key]; ok && currentHolderInMap == holder {
 				delete(ks.semMap, key)
 			}
 		}
@@ -104,33 +115,19 @@ func (ks *KeyedSemaphore[K]) TryWait(ctx context.Context, key K) bool {
 	default:
 	}
 
-	var sem *semaphore[K]
-
-	ks.mu.Lock()
-	s, exists := ks.semMap[key]
-	if exists {
-		sem = s
-		atomic.AddInt32(&sem.refCount, 1)
-	} else {
-		select {
-		case <-ctx.Done():
-			ks.mu.Unlock()
-			return false
-		default:
-		}
-		sem = &semaphore[K]{ch: make(chan struct{}, ks.maxSize), refCount: 1}
-		ks.semMap[key] = sem
+	holder, err := ks.getOrInitSemaphore(ctx, key)
+	if err != nil {
+		return false
 	}
-	ks.mu.Unlock()
 
 	select {
-	case sem.ch <- struct{}{}:
+	case holder.ch <- struct{}{}:
 		return true // Acquired successfully
 	case <-ctx.Done():
 		ks.mu.Lock()
-		newRefCount := atomic.AddInt32(&sem.refCount, -1)
-		if newRefCount == 0 && len(sem.ch) == 0 {
-			if currentHolderInMap, ok := ks.semMap[key]; ok && currentHolderInMap == sem {
+		newRefCount := atomic.AddInt32(&holder.refCount, -1)
+		if newRefCount == 0 && len(holder.ch) == 0 {
+			if currentHolderInMap, ok := ks.semMap[key]; ok && currentHolderInMap == holder {
 				delete(ks.semMap, key)
 			}
 		}
@@ -138,9 +135,9 @@ func (ks *KeyedSemaphore[K]) TryWait(ctx context.Context, key K) bool {
 		return false
 	default: // Channel is full, TryWait fails
 		ks.mu.Lock()
-		newRefCount := atomic.AddInt32(&sem.refCount, -1)
-		if newRefCount == 0 && len(sem.ch) == 0 { // Channel empty
-			if currentHolderInMap, ok := ks.semMap[key]; ok && currentHolderInMap == sem {
+		newRefCount := atomic.AddInt32(&holder.refCount, -1)
+		if newRefCount == 0 && len(holder.ch) == 0 {
+			if currentHolderInMap, ok := ks.semMap[key]; ok && currentHolderInMap == holder {
 				delete(ks.semMap, key)
 			}
 		}
@@ -184,7 +181,6 @@ func (ks *KeyedSemaphore[K]) Release(key K) error {
 		ks.mu.Unlock()
 		return nil
 	default:
-		// Channel was empty, implying a Release without a corresponding successful Wait or a double Release.
 		return fmt.Errorf(
 			"release called on an already empty semaphore channel for key: %v (potential double release or release without wait)",
 			key,
